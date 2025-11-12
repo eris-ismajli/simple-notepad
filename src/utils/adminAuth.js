@@ -2,9 +2,9 @@ import { doc, getDoc } from "firebase/firestore";
 import bcrypt from "bcryptjs";
 import { db } from "../firebase";
 
-export async function loginAdmin(username, password) {
+export async function loginAdmin(setLoginFeedback, username, password) {
   if (!username || !password) {
-    alert("Username and password are required");
+    setLoginFeedback("Username and password are required");
     return false;
   }
 
@@ -12,30 +12,30 @@ export async function loginAdmin(username, password) {
   const userSnap = await getDoc(userRef);
 
   if (!userSnap.exists()) {
-    alert("User not found");
+    setLoginFeedback("User not found");
     return false;
   }
 
   const userData = userSnap.data();
   if (!userData) {
-    alert("User data not found");
+    setLoginFeedback("User data not found");
     return false;
   }
 
   const { passwordHash, role } = userData;
 
   if (role !== "admin") {
-    alert("Not an admin account");
+    setLoginFeedback("Not an admin account");
     return false;
   }
 
   const isValid = await bcrypt.compare(password, passwordHash);
   if (!isValid) {
-    alert("Incorrect password");
+    setLoginFeedback("Incorrect password");
     return false;
   }
 
-  localStorage.setItem("adminUsername", username); // persist login
+  localStorage.setItem("adminUsername", username);
   return true;
 }
 

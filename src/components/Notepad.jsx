@@ -1,6 +1,8 @@
 import React, { useEffect, useState, useRef } from "react";
 import { useLocation } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
+import { successToast, warnToast, errorToast } from "../utils/toasts";
+
 import {
   doc,
   setDoc,
@@ -8,14 +10,23 @@ import {
   deleteDoc,
   collection,
   getDocs,
+  serverTimestamp,
 } from "firebase/firestore";
 import { db } from "../firebase";
 import PasswordModal from "./PasswordModal";
-import { Lock, Unlock, LogOut, Trash } from "lucide-react";
+import {
+  Lock,
+  Unlock,
+  LogOut,
+  Trash,
+  CheckCircle,
+  AlertTriangle,
+} from "lucide-react";
 import loginAdmin from "../utils/adminAuth";
 import "./notepad.css";
 import ConfirmModal from "./ConfirmModal";
 import toast, { Toaster } from "react-hot-toast";
+
 export default function Notepad() {
   const location = useLocation();
   const noteKey =
@@ -30,8 +41,14 @@ export default function Notepad() {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [showConfirmDelete, setShowConfirmDelete] = useState(false);
+  const [loginFeedback, setLoginFeedback] = useState("");
+
+  // store last edited timestamp for UI
+  const [lastEdited, setLastEdited] = useState(null);
 
   const textareaRef = useRef(null);
+  // store the text value when entering edit mode so we can detect changes on exit
+  const originalTextRef = useRef("");
 
   // 🔐 Load admin login session (without enabling edit by default)
   useEffect(() => {
@@ -46,20 +63,33 @@ export default function Notepad() {
       if (snapshot.exists()) {
         const data = snapshot.data();
         if (data && typeof data.text === "string") setText(data.text);
+        // Firestore Timestamp -> JS Date
+        if (data && data.lastEdited) {
+          // lastEdited may be a Firestore Timestamp
+          const ts = data.lastEdited.toDate
+            ? data.lastEdited.toDate()
+            : data.lastEdited;
+          setLastEdited(ts);
+        } else {
+          setLastEdited(null);
+        }
       } else {
         setText("");
+        setLastEdited(null);
       }
     });
     return () => unsubscribe();
   }, [noteKey]);
 
-  // ✏️ Debounced save
+  // ✏️ Debounced save (autosave while editing). Use merge so we don't overwrite lastEdited.
   useEffect(() => {
     if (!canEdit) return;
+    const docRef = doc(db, "notes", noteKey);
     const timeout = setTimeout(async () => {
       setIsSaving(true);
       try {
-        await setDoc(doc(db, "notes", noteKey), { text });
+        // merge: true so autosave doesn't wipe server-set lastEdited
+        await setDoc(docRef, { text }, { merge: true });
       } catch (err) {
         console.error("Error saving note:", err);
       } finally {
@@ -79,13 +109,15 @@ export default function Notepad() {
 
   // 🔑 Handle login modal submit
   const handlePasswordSubmit = async ({ username, password }) => {
-    const success = await loginAdmin(username, password);
+    const success = await loginAdmin(setLoginFeedback, username, password);
     if (success) {
       setIsLoggedIn(true);
       setCanEdit(true);
       sessionStorage.setItem("adminUsername", username);
+      // record original text for change detection
+      originalTextRef.current = text;
+      setShowModal(false);
     }
-    setShowModal(false);
     setShowDeleteModal(false);
   };
 
@@ -102,16 +134,38 @@ export default function Notepad() {
 
     setText("");
     setCanEdit(false);
-    toast.success("All notes deleted!");
+    successToast("All notes deleted!");
   };
 
   const cancelDelete = () => setShowConfirmDelete(false);
 
-  // 🚪 Toggle edit mode
-  const handleToggleEditMode = () => {
+  // 🚪 Toggle edit mode — capture timestamp when exiting edit mode (only if content changed)
+  const handleToggleEditMode = async () => {
+    const docRef = doc(db, "notes", noteKey);
+
     if (canEdit) {
+      // We're exiting edit mode — check if text changed while editing
+      const original = originalTextRef.current ?? "";
+      if (text !== original) {
+        try {
+          setIsSaving(true);
+          // update text + lastEdited with server timestamp; merge so we don't remove other fields
+          await setDoc(
+            docRef,
+            { text, lastEdited: serverTimestamp() },
+            { merge: true }
+          );
+        } catch (err) {
+          console.error("Error saving final edit:", err);
+          toast.error("Failed to save changes");
+        } finally {
+          setIsSaving(false);
+        }
+      }
       setCanEdit(false); // exit edit mode visually
     } else if (isLoggedIn) {
+      // entering edit mode: remember original text so we can detect changes on exit
+      originalTextRef.current = text;
       setCanEdit(true); // already logged in
     } else {
       setShowModal(true); // show login modal
@@ -125,9 +179,34 @@ export default function Notepad() {
     setCanEdit(false);
   };
 
+  // helper to render nice date/time
+  const formatLastEdited = (date) => {
+    if (!date) return "Never";
+    // Use locale string — adapt if you want a custom formatter
+    return date.toLocaleString();
+  };
+
+  // --- NEW: live counts ---
+  const charCount = text.length;
+  const lineCount = text === "" ? 0 : text.split(/\r\n|\r|\n/).length;
+  // ------------------------
+
   return (
     <div className="notepad-container">
-      <Toaster position="bottom-center" reverseOrder={false} />
+      <Toaster
+        position="bottom-center"
+        reverseOrder={false}
+        toastOptions={{
+          duration: 3600,
+          className: "custom-toast",
+          style: {
+            padding: "10px 12px",
+            fontFamily:
+              "Inter, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial",
+            fontSize: "14px",
+          },
+        }}
+      />
       <motion.div
         initial={{ opacity: 0, scale: 0.98, y: 10 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -163,7 +242,7 @@ export default function Notepad() {
                   onClick={handleDeleteNotes}
                 >
                   <Trash size={15} />
-                  Delete Notes
+                  <p className="button-text">Delete Notes</p>
                 </button>
                 <button
                   onClick={handleToggleEditMode}
@@ -171,17 +250,19 @@ export default function Notepad() {
                 >
                   {canEdit ? (
                     <>
-                      <Unlock size={16} /> Exit Edit Mode
+                      <Unlock size={16} />
+                      <p className="button-text">Exit Edit Mode</p>
                     </>
                   ) : (
                     <>
-                      <Lock size={16} /> Edit Mode
+                      <Lock size={16} />{" "}
+                      <p className="button-text">Edit Mode</p>
                     </>
                   )}
                 </button>
 
                 <button onClick={handleLogout} className="btn btn-dark">
-                  <LogOut size={16} /> Log Out
+                  <LogOut size={16} /> <p className="button-text">Log Out</p>
                 </button>
               </>
             ) : (
@@ -204,16 +285,34 @@ export default function Notepad() {
           placeholder={canEdit ? "Start typing..." : "No text to display"}
         />
 
-        {!canEdit && (
-          <p className="readonly-hint">
-            Read-only mode — only admins can edit.
-          </p>
-        )}
+        {/* Info area: Last edited + character & line counts */}
+        <div className="info-tags">
+          <div className="tags-wrapper">
+            <div className="tag-container">
+              <p className="tag-text">{formatLastEdited(lastEdited)}</p>
+              <p className="tag-label date-label">Last edited</p>
+            </div>
+
+            <div className="tag-container">
+              <p className="tag-text tag-char">{charCount}</p>
+              <p className="tag-label char-label">Characters</p>
+            </div>
+
+            <div className="tag-container">
+              <p className="tag-text tag-lines">{lineCount}</p>
+              <p className="tag-label lines-label">Lines</p>
+            </div>
+          </div>
+
+          <p className="read-only">Read-only mode — only admins can edit.</p>
+        </div>
 
         <AnimatePresence>
           {showModal && (
             <PasswordModal
               key="editModal"
+              setLoginFeedback={setLoginFeedback}
+              loginFeedback={loginFeedback}
               onSubmit={handlePasswordSubmit}
               onClose={() => setShowModal(false)}
               requireUsername={true}
