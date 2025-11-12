@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { useLocation } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import PasswordModal from "./PasswordModal";
@@ -17,8 +17,21 @@ export default function Notepad() {
   const [storedEncrypted, setStoredEncrypted] = useState(null);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
 
+  const textareaRef = useRef(null);
+
+  useEffect(() => {
+    const savedEdit = localStorage.getItem("editModeEnabled");
+    const savedPassword = localStorage.getItem("savedPassword");
+
+    if (savedEdit === "true" && savedPassword === HARDCODED_PASSWORD) {
+      setCanEdit(true);
+      setPasswordInMemory(savedPassword);
+    }
+  }, []);
+
   useEffect(() => {
     const raw = localStorage.getItem(noteKey);
+
     if (!raw) return;
 
     try {
@@ -26,7 +39,16 @@ export default function Notepad() {
 
       if (parsed.ciphertext && parsed.iv && parsed.salt) {
         setStoredEncrypted(parsed);
-        setText("");
+
+        // Only decrypt if user has edit access
+        const savedEdit = localStorage.getItem("editModeEnabled");
+        const savedPassword = localStorage.getItem("savedPassword");
+
+        if (savedEdit === "true" && savedPassword === HARDCODED_PASSWORD) {
+          decryptNote(savedPassword, parsed)
+            .then((plain) => setText(plain))
+            .catch(() => setText(""));
+        }
       } else {
         setText(parsed);
       }
@@ -35,17 +57,56 @@ export default function Notepad() {
     }
   }, [noteKey]);
 
+  function useDebouncedEffect(callback, deps, delay) {
+    useEffect(() => {
+      const handler = setTimeout(() => callback(), delay);
+      return () => clearTimeout(handler);
+    }, [...(deps || []), delay]);
+  }
+
+  useDebouncedEffect(
+    () => {
+      if (canEdit && passwordInMemory) {
+        encryptNote(passwordInMemory, text)
+          .then((encrypted) => {
+            requestIdleCallback(() => {
+              localStorage.setItem(noteKey, JSON.stringify(encrypted));
+            });
+          })
+          .catch(console.error);
+      } else {
+        requestIdleCallback(() => {
+          localStorage.setItem(noteKey, text);
+        });
+      }
+    },
+    [text, canEdit, passwordInMemory, noteKey],
+    500
+  );
+
   useEffect(() => {
-    if (canEdit && passwordInMemory) {
-      encryptNote(passwordInMemory, text)
-        .then((encrypted) => {
-          localStorage.setItem(noteKey, JSON.stringify(encrypted));
-        })
-        .catch(console.error);
-    } else {
-      localStorage.setItem(noteKey, text);
+    if (canEdit && textareaRef.current) {
+      const timer = setTimeout(() => textareaRef.current.focus(), 100);
+      return () => clearTimeout(timer);
     }
-  }, [text, canEdit, passwordInMemory, noteKey]);
+  }, [canEdit]);
+
+  useEffect(() => {
+    return () => {
+      if (text.trim()) {
+        try {
+          if (canEdit && passwordInMemory) {
+            const encrypted = encryptNote(passwordInMemory, text);
+            localStorage.setItem(noteKey, JSON.stringify(encrypted));
+          } else {
+            localStorage.setItem(noteKey, text);
+          }
+        } catch (err) {
+          console.error("Failed to save before route change:", err);
+        }
+      }
+    };
+  }, [noteKey, text, canEdit, passwordInMemory]);
 
   const HARDCODED_PASSWORD = atob("U3VwZXJTZWNyZXQxMjMh");
 
@@ -58,6 +119,8 @@ export default function Notepad() {
 
     setCanEdit(true);
     setPasswordInMemory(input);
+    localStorage.setItem("editModeEnabled", "true");
+    localStorage.setItem("savedPassword", input);
     setShowModal(false);
 
     if (storedEncrypted) {
@@ -82,15 +145,21 @@ export default function Notepad() {
     });
 
     setText("");
+    setStoredEncrypted(null);
     setCanEdit(false);
     setPasswordInMemory(null);
     setShowDeleteModal(false);
+
+    if (textareaRef.current) textareaRef.current.value = "";
+
     alert("All notes deleted!");
   };
 
   const handleExitEditMode = () => {
     setCanEdit(false);
     setPasswordInMemory(null);
+    localStorage.removeItem("editModeEnabled");
+    localStorage.removeItem("savedPassword");
   };
 
   return (
@@ -129,11 +198,14 @@ export default function Notepad() {
         </div>
 
         <textarea
-          value={text}
+          ref={textareaRef}
+          defaultValue={text}
           readOnly={!canEdit}
-          onChange={(e) => setText(e.target.value)}
           className={`notepad-textarea ${canEdit ? "editable" : "readonly"}`}
           placeholder={canEdit ? "Start typing..." : "No text to display"}
+          onBlur={() => {
+            if (canEdit) setText(textareaRef.current.value);
+          }}
         />
 
         {!canEdit && (
@@ -145,22 +217,24 @@ export default function Notepad() {
         <AnimatePresence>
           {showModal && (
             <PasswordModal
+              key="editModal"
               onSubmit={handlePasswordSubmit}
               onClose={() => setShowModal(false)}
             />
           )}
-
-          <AnimatePresence>
-            {showDeleteModal && (
-              <PasswordModal
-                isDeleting={true}
-                onSubmit={handleDeletePasswordSubmit}
-                onClose={() => setShowDeleteModal(false)}
-              />
-            )}
-          </AnimatePresence>
+          {showDeleteModal && (
+            <PasswordModal
+              key="deleteModal"
+              isDeleting={true}
+              onSubmit={handleDeletePasswordSubmit}
+              onClose={() => setShowDeleteModal(false)}
+            />
+          )}
         </AnimatePresence>
       </motion.div>
+      <footer className="notepad-footer">
+        &copy; {new Date().getFullYear()} Eris Ismajli. All rights reserved.
+      </footer>
     </div>
   );
 }
