@@ -32,7 +32,7 @@ export default function PasswordModal({ onSubmit, onClose, requireUsername }) {
 
   return (
     <>
-      <Toaster position="top-center" reverseOrder={false} />
+      {/* <Toaster position="top-center" reverseOrder={false} /> */}
       <div
         className={exiting ? "modal-exit" : "modal-appear"}
         onAnimationEnd={handleAnimationEnd}
