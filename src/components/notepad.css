@@ -176,6 +176,15 @@ body {
   box-shadow: 0 12px 34px rgba(10, 132, 255, 0.22);
 }
 
+.exit-edit-btn {
+  border: 2px solid var(--accent-600);
+  color: var(--accent-500);
+}
+
+.exit-edit-btn:hover {
+  transform: translateY(-3px);
+}
+
 .btn-login {
   background: linear-gradient(180deg, var(--accent), var(--accent-600));
   color: #fff;

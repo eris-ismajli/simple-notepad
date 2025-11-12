@@ -167,7 +167,7 @@ export default function Notepad() {
                 </button>
                 <button
                   onClick={handleToggleEditMode}
-                  className="btn btn-primary"
+                  className={`btn ${canEdit ? "exit-edit-btn" : "btn-primary"}`}
                 >
                   {canEdit ? (
                     <>
