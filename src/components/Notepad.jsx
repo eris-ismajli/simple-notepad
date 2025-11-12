@@ -3,7 +3,7 @@ import { useLocation } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import PasswordModal from "./PasswordModal";
 import { Lock, Unlock } from "lucide-react";
-import "./Notepad.css";
+import "./notepad.css";
 import { encryptNote, decryptNote } from "../utils/cryptoNote";
 
 export default function Notepad() {
