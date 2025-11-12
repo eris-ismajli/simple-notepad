@@ -38,6 +38,7 @@ button {
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI",
     Roboto, Helvetica, Arial, sans-serif;
   line-height: 0.7;
+  user-select: none;
 }
 
 /* Centering container */
