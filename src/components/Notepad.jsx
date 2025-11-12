@@ -11,9 +11,11 @@ import {
 } from "firebase/firestore";
 import { db } from "../firebase";
 import PasswordModal from "./PasswordModal";
-import { Lock, Unlock } from "lucide-react";
+import { Lock, Unlock, LogOut, Trash } from "lucide-react";
+import loginAdmin from "../utils/adminAuth";
 import "./notepad.css";
-
+import ConfirmModal from "./ConfirmModal";
+import toast, { Toaster } from "react-hot-toast";
 export default function Notepad() {
   const location = useLocation();
   const noteKey =
@@ -23,44 +25,37 @@ export default function Notepad() {
 
   const [text, setText] = useState("");
   const [canEdit, setCanEdit] = useState(false);
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [showConfirmDelete, setShowConfirmDelete] = useState(false);
 
   const textareaRef = useRef(null);
-  const HARDCODED_PASSWORD = atob("U3VwZXJTZWNyZXQxMjMh");
 
-  // 🔐 Load edit state (UI only)
+  // 🔐 Load admin login session (without enabling edit by default)
   useEffect(() => {
-    const savedEdit = localStorage.getItem("editModeEnabled");
-    const savedPassword = localStorage.getItem("savedPassword");
-    if (savedEdit === "true" && savedPassword === HARDCODED_PASSWORD) {
-      setCanEdit(true);
-    }
+    const adminUsername = sessionStorage.getItem("adminUsername");
+    if (adminUsername) setIsLoggedIn(true); // logged in but edit mode OFF
   }, []);
 
-  // 🔥 Listen to Firestore in real-time
+  // 🔥 Firestore real-time listener
   useEffect(() => {
     const docRef = doc(db, "notes", noteKey);
-
     const unsubscribe = onSnapshot(docRef, (snapshot) => {
       if (snapshot.exists()) {
         const data = snapshot.data();
-        if (data && typeof data.text === "string") {
-          setText(data.text);
-        }
+        if (data && typeof data.text === "string") setText(data.text);
       } else {
         setText("");
       }
     });
-
     return () => unsubscribe();
   }, [noteKey]);
 
-  // ✏️ Debounced save to Firestore
+  // ✏️ Debounced save
   useEffect(() => {
     if (!canEdit) return;
-
     const timeout = setTimeout(async () => {
       setIsSaving(true);
       try {
@@ -71,11 +66,10 @@ export default function Notepad() {
         setIsSaving(false);
       }
     }, 400);
-
     return () => clearTimeout(timeout);
   }, [text, canEdit, noteKey]);
 
-  // 🎯 Focus textarea on unlock
+  // 🎯 Focus textarea when entering edit mode
   useEffect(() => {
     if (canEdit && textareaRef.current) {
       const timer = setTimeout(() => textareaRef.current.focus(), 100);
@@ -83,27 +77,24 @@ export default function Notepad() {
     }
   }, [canEdit]);
 
-  // 🔑 Handle password submit
-  const handlePasswordSubmit = async (input) => {
-    if (input !== HARDCODED_PASSWORD) {
-      alert("Wrong password");
-      setShowModal(false);
-      return;
+  // 🔑 Handle login modal submit
+  const handlePasswordSubmit = async ({ username, password }) => {
+    const success = await loginAdmin(username, password);
+    if (success) {
+      setIsLoggedIn(true);
+      setCanEdit(true);
+      sessionStorage.setItem("adminUsername", username);
     }
-
-    setCanEdit(true);
-    localStorage.setItem("editModeEnabled", "true");
-    localStorage.setItem("savedPassword", input);
     setShowModal(false);
+    setShowDeleteModal(false);
   };
 
-  // 🗑️ Delete all notes from Firestore
-  const handleDeletePasswordSubmit = async (input) => {
-    if (input !== HARDCODED_PASSWORD) {
-      alert("Incorrect password. Operation cancelled.");
-      setShowDeleteModal(false);
-      return;
-    }
+  const handleDeleteNotes = async () => {
+    setShowConfirmDelete(true); // Show confirm modal first
+  };
+
+  const confirmDelete = async () => {
+    setShowConfirmDelete(false);
 
     const notesRef = collection(db, "notes");
     const allNotes = await getDocs(notesRef);
@@ -111,22 +102,32 @@ export default function Notepad() {
 
     setText("");
     setCanEdit(false);
-    setShowDeleteModal(false);
-    localStorage.removeItem("editModeEnabled");
-    localStorage.removeItem("savedPassword");
-
-    alert("All notes deleted!");
+    toast.success("All notes deleted!");
   };
 
-  // 🚪 Exit edit mode
-  const handleExitEditMode = () => {
+  const cancelDelete = () => setShowConfirmDelete(false);
+
+  // 🚪 Toggle edit mode
+  const handleToggleEditMode = () => {
+    if (canEdit) {
+      setCanEdit(false); // exit edit mode visually
+    } else if (isLoggedIn) {
+      setCanEdit(true); // already logged in
+    } else {
+      setShowModal(true); // show login modal
+    }
+  };
+
+  // 🔒 Log out
+  const handleLogout = () => {
+    sessionStorage.removeItem("adminUsername");
+    setIsLoggedIn(false);
     setCanEdit(false);
-    localStorage.removeItem("editModeEnabled");
-    localStorage.removeItem("savedPassword");
   };
 
   return (
     <div className="notepad-container">
+      <Toaster position="bottom-center" reverseOrder={false} />
       <motion.div
         initial={{ opacity: 0, scale: 0.98, y: 10 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -134,27 +135,61 @@ export default function Notepad() {
         className="notepad"
       >
         <div className="notepad-header">
-          <h2 className="notepad-title">
+          <h2
+            className="notepad-title"
+            style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}
+          >
             {location.pathname.replace(/^\//, "") || "Untitled Note"}
+            {isSaving && canEdit && (
+              <span
+                style={{
+                  width: "16px",
+                  height: "16px",
+                  border: "2px solid #007aff",
+                  borderTop: "2px solid transparent",
+                  borderRadius: "50%",
+                  display: "inline-block",
+                  animation: "spin 0.8s linear infinite",
+                }}
+              />
+            )}
           </h2>
 
           <div className="buttons">
-            <button
-              className="btn-delete-all"
-              onClick={() => setShowDeleteModal(true)}
-            >
-              Delete All Notes
-            </button>
-            {canEdit ? (
-              <button onClick={handleExitEditMode} className="btn btn-dark">
-                <Unlock size={16} /> Exit Edit Mode
-              </button>
+            {isLoggedIn ? (
+              <>
+                <button
+                  className="btn btn-delete-all"
+                  onClick={handleDeleteNotes}
+                >
+                  <Trash size={15} />
+                  Delete Notes
+                </button>
+                <button
+                  onClick={handleToggleEditMode}
+                  className="btn btn-primary"
+                >
+                  {canEdit ? (
+                    <>
+                      <Unlock size={16} /> Exit Edit Mode
+                    </>
+                  ) : (
+                    <>
+                      <Lock size={16} /> Edit Mode
+                    </>
+                  )}
+                </button>
+
+                <button onClick={handleLogout} className="btn btn-dark">
+                  <LogOut size={16} /> Log Out
+                </button>
+              </>
             ) : (
               <button
                 onClick={() => setShowModal(true)}
                 className="btn btn-primary"
               >
-                <Lock size={16} /> Edit Mode
+                <Lock size={16} /> Admin Login
               </button>
             )}
           </div>
@@ -171,11 +206,9 @@ export default function Notepad() {
 
         {!canEdit && (
           <p className="readonly-hint">
-            Read-only mode — click “Edit Mode” to unlock editing.
+            Read-only mode — only admins can edit.
           </p>
         )}
-
-        {/* {isSaving && canEdit && <p className="saving-indicator">Saving...</p>} */}
 
         <AnimatePresence>
           {showModal && (
@@ -183,14 +216,15 @@ export default function Notepad() {
               key="editModal"
               onSubmit={handlePasswordSubmit}
               onClose={() => setShowModal(false)}
+              requireUsername={true}
             />
           )}
-          {showDeleteModal && (
-            <PasswordModal
-              key="deleteModal"
-              isDeleting={true}
-              onSubmit={handleDeletePasswordSubmit}
-              onClose={() => setShowDeleteModal(false)}
+          {showConfirmDelete && (
+            <ConfirmModal
+              title="Delete all notes"
+              message="Are you sure you want to delete all notes? This cannot be undone."
+              onConfirm={confirmDelete}
+              onCancel={cancelDelete}
             />
           )}
         </AnimatePresence>

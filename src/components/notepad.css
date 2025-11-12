@@ -8,6 +8,8 @@
   --muted: #4b5563; /* secondary text */
   --accent: #0a84ff; /* primary accent (blue) */
   --accent-600: #0772ec; /* accent hover */
+  --accent-500: #0669da; /* accent hover */
+
   --dark-surface: rgba(20, 24, 30, 0.85); /* dark button surface */
   --radius: 18px;
   --glass-blur: 18px;
@@ -72,6 +74,45 @@ body {
   transform: translateY(0);
 }
 
+@keyframes scaleOut {
+  0% {
+    transform: translate(-50%, -50%) scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: translate(-50%, -50%) scale(0.8);
+    opacity: 0;
+  }
+}
+
+.modal-exit {
+  animation: scaleOut 0.25s forwards;
+}
+
+.modal-appear {
+  animation: scaleIn 0.25s forwards; /* optional scale-in animation */
+}
+
+@keyframes spin {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes scaleIn {
+  0% {
+    transform: translate(-50%, -50%) scale(0.8);
+    opacity: 0;
+  }
+  100% {
+    transform: translate(-50%, -50%) scale(1);
+    opacity: 1;
+  }
+}
+
 /* entry animation */
 @keyframes fadeInUp {
   from {
@@ -129,9 +170,26 @@ body {
   box-shadow: 0 8px 24px rgba(10, 132, 255, 0.18);
   border: 1px solid rgba(255, 255, 255, 0.08);
 }
+
 .btn-primary:hover {
-  transform: translateY(-2px);
+  transform: translateY(-3px);
   box-shadow: 0 12px 34px rgba(10, 132, 255, 0.22);
+}
+
+.btn-login {
+  background: linear-gradient(180deg, var(--accent), var(--accent-600));
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  padding: 0.6rem 1.2rem;
+  font-size: 0.95rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.3s ease, transform 0.2s ease;
+}
+
+.btn-login:hover {
+  background: linear-gradient(180deg, var(--accent-600), var(--accent-500));
 }
 
 /* subtle dark / secondary action */
@@ -142,7 +200,7 @@ body {
   box-shadow: 0 6px 18px rgba(6, 8, 12, 0.18);
 }
 .btn-dark:hover {
-  transform: translateY(-1px);
+  transform: translateY(-3px);
   filter: brightness(1.05);
 }
 
@@ -232,7 +290,7 @@ body {
   border-radius: 12px;
   padding: 0.6rem 1.4rem;
   font-size: 0.95rem;
-  font-weight: 500;
+  font-weight: 550;
   cursor: pointer;
   letter-spacing: 0.02em;
   transition: all 0.2s ease;
@@ -240,7 +298,41 @@ body {
 }
 
 .btn-delete-all:hover {
-  background: linear-gradient(145deg, #ff7875, #e74c3c);
+  transform: translateY(-3px);
+}
+
+.btn-confirm-delete {
+  background: linear-gradient(145deg, #ff4d4f, #d9363e);
+  color: #fff;
+  border: none;
+  border-radius: 12px;
+  padding: 0.6rem 1.4rem;
+  font-size: 0.95rem;
+  font-weight: 500;
+  cursor: pointer;
+  letter-spacing: 0.02em;
+  transition: all 0.2s ease;
+}
+
+.btn-confirm-delete:hover {
+  background: linear-gradient(145deg, #e64447, #c32c31); /* slightly darker */
+}
+
+.btn-cancel {
+  background: #f0f0f0; /* light neutral background */
+  color: #333; /* dark text for contrast */
+  border: none;
+  border-radius: 12px;
+  padding: 0.6rem 1.4rem;
+  font-size: 0.95rem;
+  font-weight: 500;
+  cursor: pointer;
+  letter-spacing: 0.02em;
+  transition: all 0.2s ease;
+}
+
+.btn-cancel:hover {
+  background: #e0e0e0; /* slightly darker on hover */
 }
 
 .notepad-footer {
