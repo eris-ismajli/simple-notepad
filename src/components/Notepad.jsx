@@ -1,89 +1,81 @@
 import React, { useEffect, useState, useRef } from "react";
 import { useLocation } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
+import {
+  doc,
+  setDoc,
+  onSnapshot,
+  deleteDoc,
+  collection,
+  getDocs,
+} from "firebase/firestore";
+import { db } from "../firebase";
 import PasswordModal from "./PasswordModal";
 import { Lock, Unlock } from "lucide-react";
 import "./notepad.css";
-import { encryptNote, decryptNote } from "../utils/cryptoNote";
 
 export default function Notepad() {
   const location = useLocation();
-  const noteKey = `note-${location.pathname}`;
+  const noteKey =
+    location.pathname === "/"
+      ? "note-home"
+      : `note-${location.pathname.slice(1)}`;
 
   const [text, setText] = useState("");
   const [canEdit, setCanEdit] = useState(false);
   const [showModal, setShowModal] = useState(false);
-  const [passwordInMemory, setPasswordInMemory] = useState(null);
-  const [storedEncrypted, setStoredEncrypted] = useState(null);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
   const textareaRef = useRef(null);
+  const HARDCODED_PASSWORD = atob("U3VwZXJTZWNyZXQxMjMh");
 
+  // 🔐 Load edit state (UI only)
   useEffect(() => {
     const savedEdit = localStorage.getItem("editModeEnabled");
     const savedPassword = localStorage.getItem("savedPassword");
-
     if (savedEdit === "true" && savedPassword === HARDCODED_PASSWORD) {
       setCanEdit(true);
-      setPasswordInMemory(savedPassword);
     }
   }, []);
 
+  // 🔥 Listen to Firestore in real-time
   useEffect(() => {
-    const raw = localStorage.getItem(noteKey);
+    const docRef = doc(db, "notes", noteKey);
 
-    if (!raw) return;
-
-    try {
-      const parsed = JSON.parse(raw);
-
-      if (parsed.ciphertext && parsed.iv && parsed.salt) {
-        setStoredEncrypted(parsed);
-
-        // Only decrypt if user has edit access
-        const savedEdit = localStorage.getItem("editModeEnabled");
-        const savedPassword = localStorage.getItem("savedPassword");
-
-        if (savedEdit === "true" && savedPassword === HARDCODED_PASSWORD) {
-          decryptNote(savedPassword, parsed)
-            .then((plain) => setText(plain))
-            .catch(() => setText(""));
+    const unsubscribe = onSnapshot(docRef, (snapshot) => {
+      if (snapshot.exists()) {
+        const data = snapshot.data();
+        if (data && typeof data.text === "string") {
+          setText(data.text);
         }
       } else {
-        setText(parsed);
+        setText("");
       }
-    } catch {
-      setText(raw);
-    }
+    });
+
+    return () => unsubscribe();
   }, [noteKey]);
 
-  function useDebouncedEffect(callback, deps, delay) {
-    useEffect(() => {
-      const handler = setTimeout(() => callback(), delay);
-      return () => clearTimeout(handler);
-    }, [...(deps || []), delay]);
-  }
+  // ✏️ Debounced save to Firestore
+  useEffect(() => {
+    if (!canEdit) return;
 
-  useDebouncedEffect(
-    () => {
-      if (canEdit && passwordInMemory) {
-        encryptNote(passwordInMemory, text)
-          .then((encrypted) => {
-            requestIdleCallback(() => {
-              localStorage.setItem(noteKey, JSON.stringify(encrypted));
-            });
-          })
-          .catch(console.error);
-      } else {
-        requestIdleCallback(() => {
-          localStorage.setItem(noteKey, text);
-        });
+    const timeout = setTimeout(async () => {
+      setIsSaving(true);
+      try {
+        await setDoc(doc(db, "notes", noteKey), { text });
+      } catch (err) {
+        console.error("Error saving note:", err);
+      } finally {
+        setIsSaving(false);
       }
-    },
-    [text, canEdit, passwordInMemory, noteKey],
-    500
-  );
+    }, 400);
 
+    return () => clearTimeout(timeout);
+  }, [text, canEdit, noteKey]);
+
+  // 🎯 Focus textarea on unlock
   useEffect(() => {
     if (canEdit && textareaRef.current) {
       const timer = setTimeout(() => textareaRef.current.focus(), 100);
@@ -91,73 +83,44 @@ export default function Notepad() {
     }
   }, [canEdit]);
 
-  useEffect(() => {
-    return () => {
-      if (text.trim()) {
-        try {
-          if (canEdit && passwordInMemory) {
-            const encrypted = encryptNote(passwordInMemory, text);
-            localStorage.setItem(noteKey, JSON.stringify(encrypted));
-          } else {
-            localStorage.setItem(noteKey, text);
-          }
-        } catch (err) {
-          console.error("Failed to save before route change:", err);
-        }
-      }
-    };
-  }, [noteKey, text, canEdit, passwordInMemory]);
-
-  const HARDCODED_PASSWORD = atob("U3VwZXJTZWNyZXQxMjMh");
-
+  // 🔑 Handle password submit
   const handlePasswordSubmit = async (input) => {
     if (input !== HARDCODED_PASSWORD) {
-      setShowModal(false);
       alert("Wrong password");
+      setShowModal(false);
       return;
     }
 
     setCanEdit(true);
-    setPasswordInMemory(input);
     localStorage.setItem("editModeEnabled", "true");
     localStorage.setItem("savedPassword", input);
     setShowModal(false);
-
-    if (storedEncrypted) {
-      try {
-        const plain = await decryptNote(input, storedEncrypted);
-        setText(plain);
-      } catch (err) {
-        alert("Encrypted note corrupted or wrong password");
-      }
-    }
   };
 
-  const handleDeletePasswordSubmit = (input) => {
+  // 🗑️ Delete all notes from Firestore
+  const handleDeletePasswordSubmit = async (input) => {
     if (input !== HARDCODED_PASSWORD) {
       alert("Incorrect password. Operation cancelled.");
       setShowDeleteModal(false);
       return;
     }
 
-    Object.keys(localStorage).forEach((key) => {
-      if (key.startsWith("note-")) localStorage.removeItem(key);
-    });
+    const notesRef = collection(db, "notes");
+    const allNotes = await getDocs(notesRef);
+    await Promise.all(allNotes.docs.map((d) => deleteDoc(d.ref)));
 
     setText("");
-    setStoredEncrypted(null);
     setCanEdit(false);
-    setPasswordInMemory(null);
     setShowDeleteModal(false);
-
-    if (textareaRef.current) textareaRef.current.value = "";
+    localStorage.removeItem("editModeEnabled");
+    localStorage.removeItem("savedPassword");
 
     alert("All notes deleted!");
   };
 
+  // 🚪 Exit edit mode
   const handleExitEditMode = () => {
     setCanEdit(false);
-    setPasswordInMemory(null);
     localStorage.removeItem("editModeEnabled");
     localStorage.removeItem("savedPassword");
   };
@@ -199,13 +162,11 @@ export default function Notepad() {
 
         <textarea
           ref={textareaRef}
-          defaultValue={text}
+          value={text}
           readOnly={!canEdit}
+          onChange={(e) => setText(e.target.value)}
           className={`notepad-textarea ${canEdit ? "editable" : "readonly"}`}
           placeholder={canEdit ? "Start typing..." : "No text to display"}
-          onBlur={() => {
-            if (canEdit) setText(textareaRef.current.value);
-          }}
         />
 
         {!canEdit && (
@@ -213,6 +174,8 @@ export default function Notepad() {
             Read-only mode — click “Edit Mode” to unlock editing.
           </p>
         )}
+
+        {/* {isSaving && canEdit && <p className="saving-indicator">Saving...</p>} */}
 
         <AnimatePresence>
           {showModal && (
@@ -232,6 +195,7 @@ export default function Notepad() {
           )}
         </AnimatePresence>
       </motion.div>
+
       <footer className="notepad-footer">
         &copy; {new Date().getFullYear()} Eris Ismajli. All rights reserved.
       </footer>
