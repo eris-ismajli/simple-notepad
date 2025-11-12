@@ -4,7 +4,7 @@ import { db } from "../firebase";
 
 export async function loginAdmin(username, password) {
   if (!username || !password) {
-    toast.error("Username and password are required");
+    alert("Username and password are required");
     return false;
   }
 
@@ -12,31 +12,30 @@ export async function loginAdmin(username, password) {
   const userSnap = await getDoc(userRef);
 
   if (!userSnap.exists()) {
-    toast.error("User not found");
+    alert("User not found");
     return false;
   }
 
   const userData = userSnap.data();
   if (!userData) {
-    toast.error("User data not found");
+    alert("User data not found");
     return false;
   }
 
   const { passwordHash, role } = userData;
 
   if (role !== "admin") {
-    toast.error("Not an admin account");
+    alert("Not an admin account");
     return false;
   }
 
   const isValid = await bcrypt.compare(password, passwordHash);
   if (!isValid) {
-    toast.error("Incorrect password");
+    alert("Incorrect password");
     return false;
   }
 
   localStorage.setItem("adminUsername", username); // persist login
-  toast.success("Logged in successfully");
   return true;
 }
 
